@@ -23,7 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let engine = HidingEngineRouter(
             settings: Settings.shared, assessment: MenuBarAgentBridge(),
             native: NativeHidingEngine(
-                store: SystemTrackedApplicationsStore(), journal: FileNativeVisibilityJournal(), runningApps: running))
+                store: SystemTrackedApplicationsStore(), journal: FileNativeVisibilityJournal(), runningApps: running),
+            spacer: SpacerHidingEngine(spacer: statusItem))
         controller = HidingController(
             engine: engine,
             items: MenuBarScanner(extras: extras),

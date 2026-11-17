@@ -47,8 +47,12 @@ final class AppleRestrictionTests: XCTestCase {
             fixture.settings.hidingMethod = .systemSettings
             fixture.running.bundleIDs = ["com.apple.TextInputMenuAgent"]
             let native = NativeHidingEngine(
-                store: store, journal: journal, runningApps: fixture.running, parentBundleIDs: { _ in [] })
-            let router = HidingEngineRouter(settings: fixture.settings, assessment: fixture.engine, native: native)
+                store: store, journal: journal, runningApps: fixture.running, parentBundleIDs: { _ in [] },
+                isSupported: { true })
+            let router = HidingEngineRouter(
+                settings: fixture.settings, assessment: fixture.engine, native: native,
+                spacer: SpacerHidingEngine(spacer: FakeSpacer()),
+                availableMethods: [.assessment, .systemSettings, .legacy])
             let controller = fixture.makeController(engine: router)
             fixture.extras.loaded = ["com.apple.menuextra.vpn"]
             fixture.items.positions = [

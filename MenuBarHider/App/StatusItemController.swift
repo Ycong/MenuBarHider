@@ -1,17 +1,21 @@
 import AppKit
 import ServiceManagement
 
-/// The two separator icons in the menu bar and the context menu behind them.
+/// The separator icons and the context menu behind them.
 @MainActor
 final class StatusItemController: NSObject {
     private static let repositoryURL = URL(string: "https://github.com/happy666End/MenuBarHider")!
     private static let autoHideChoices: [(seconds: Int, title: String)] = [
         (0, "Never"), (5, "5 seconds"), (10, "10 seconds"), (30, "30 seconds"), (60, "1 minute"),
     ]
+    private static let expandedLength: CGFloat = 10_000
+    private static let leftSeparatorLength: CGFloat = 12
+    /// `squareLength` is a negative sentinel, so a positive threshold marks the widened spacer.
+    private static let expandedThreshold: CGFloat = 100
 
-    /// The `»` separator: everything left of it (down to `|`) gets hidden.
+    /// The `»` separator: the toggle, and the right boundary on macOS 27.
     private let statusItem: NSStatusItem
-    /// The `|` separator: items left of it stay visible; on screen only while expanded.
+    /// The `|` separator: the left boundary on macOS 27; the spacer and left boundary on macOS 15–26.
     private let leftSeparator: NSStatusItem
     private let menu = NSMenu()
     private var controller: HidingController?
@@ -19,7 +23,7 @@ final class StatusItemController: NSObject {
 
     override init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        leftSeparator = NSStatusBar.system.statusItem(withLength: 12)
+        leftSeparator = NSStatusBar.system.statusItem(withLength: Self.leftSeparatorLength)
         super.init()
         menu.delegate = self
         configure(statusItem, autosaveName: "MenuBarHiderSeparator")
@@ -56,13 +60,22 @@ final class StatusItemController: NSObject {
     }
 
     private func updateIcon(state: HidingController.State) {
+        let legacy = controller?.hidingMethod == .legacy
         let name = state == .hidden ? "chevron.left.2" : "chevron.right.2"
         statusItem.button?.image = Self.symbol(name, description: "MenuBarHider")
-        statusItem.button?.setAccessibilityLabel(state == .hidden ? "Show Hidden Items" : "Hide Items")
-        statusItem.button?.setAccessibilityHelp(state == .hidden ? "Items are hidden" : "All items are visible")
+        let label = state == .hidden ? "Show Hidden Items" : "Hide Items"
+        let help = state == .hidden ? "Items are hidden" : "All items are visible"
+        statusItem.button?.setAccessibilityLabel(label)
+        statusItem.button?.setAccessibilityHelp(help)
+        statusItem.button?.toolTip =
+            legacy ? "Hide or show everything left of |" : "Hide or show the items between | and »"
         leftSeparator.button?.setAccessibilityLabel("Hidden Items Boundary")
-        leftSeparator.button?.setAccessibilityHelp("Command-drag to choose which icons remain visible")
-        leftSeparator.isVisible = state == .shown
+        leftSeparator.button?.setAccessibilityHelp("Command-drag to choose which icons are hidden")
+        leftSeparator.button?.toolTip =
+            legacy ? "Everything left of this separator is hidden" : "Icons left of this separator stay visible"
+        // While the spacer is widened it must stay in the layout, otherwise nothing is pushed.
+        let spacerIsExpanded = leftSeparator.length > Self.expandedThreshold
+        leftSeparator.isVisible = state == .shown || (legacy && spacerIsExpanded)
     }
 
     private static func symbol(_ name: String, description: String? = nil) -> NSImage? {
@@ -77,9 +90,13 @@ final class StatusItemController: NSObject {
         Log.ui.error("separator clicked, secondary=\(isSecondary), state=\(String(describing: self.controller?.state))")
         if isSecondary {
             let clicked = sender === leftSeparator.button ? leftSeparator : statusItem
-            clicked.menu = menu
-            clicked.button?.performClick(nil)
-            clicked.menu = nil
+            guard let button = clicked.button else { return }
+            // The spacer is 5000 points wide while collapsed, so anchor the menu at the click
+            // instead of letting performClick place it relative to the whole button.
+            let location =
+                event.map { button.convert($0.locationInWindow, from: nil) }
+                ?? NSPoint(x: button.bounds.midX, y: button.bounds.midY)
+            menu.popUp(positioning: nil, at: location, in: button)
         } else {
             // The second half of an accidental double click must not toggle straight back.
             guard (event?.clickCount ?? 1) <= 1 else { return }
@@ -288,7 +305,8 @@ extension StatusItemController: NSMenuDelegate {
     private func advancedMenu() -> NSMenuItem {
         let parent = item("Advanced", symbol: "gearshape", action: nil)
         let submenu = NSMenu()
-        for method in HidingMethod.allCases {
+        let methods = HidingMethod.supportedOnThisMac
+        for method in methods {
             let selected = controller?.hidingMethod == method
             let title = method.title + (method == .systemSettings && !selected ? "…" : "")
             let entry = item(title, symbol: nil, action: #selector(setHidingMethod(_:)))
@@ -296,12 +314,19 @@ extension StatusItemController: NSMenuDelegate {
             entry.state = selected ? .on : .off
             submenu.addItem(entry)
         }
-        submenu.addItem(.separator())
-        submenu.addItem(
-            item("Menu Bar Settings Access…", symbol: "folder", action: #selector(grantNativeAccess)))
-        if controller?.hidingMethod == .systemSettings && controller?.lastError == nil {
+        if methods.contains(.legacy) {
+            let note = item("Legacy mode hides everything left of |", symbol: nil, action: nil)
+            note.isEnabled = false
+            submenu.addItem(note)
+        }
+        if methods.contains(.systemSettings) {
+            submenu.addItem(.separator())
             submenu.addItem(
-                item("Restore Menu Bar Visibility", symbol: "arrow.counterclockwise", action: #selector(restore)))
+                item("Menu Bar Settings Access…", symbol: "folder", action: #selector(grantNativeAccess)))
+            if controller?.hidingMethod == .systemSettings && controller?.lastError == nil {
+                submenu.addItem(
+                    item("Restore Menu Bar Visibility", symbol: "arrow.counterclockwise", action: #selector(restore)))
+            }
         }
         parent.submenu = submenu
         return parent
@@ -312,5 +337,17 @@ extension StatusItemController: NSMenuDelegate {
         entry.target = self
         if let symbol { entry.image = Self.symbol(symbol) }
         return entry
+    }
+}
+
+extension StatusItemController: @preconcurrency MenuBarSpacer {
+    var isAvailable: Bool { true }
+
+    var isExpanded: Bool {
+        get { leftSeparator.length > Self.expandedThreshold }
+        set {
+            leftSeparator.length = newValue ? Self.expandedLength : Self.leftSeparatorLength
+            stateChanged()
+        }
     }
 }

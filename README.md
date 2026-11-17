@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/happy666End/MenuBarHider/releases"><img alt="macOS 27+" src="https://img.shields.io/badge/macOS-27%2B-111827?logo=apple&logoColor=white"></a>
+  <a href="https://github.com/happy666End/MenuBarHider/releases"><img alt="macOS 15+" src="https://img.shields.io/badge/macOS-15%2B-111827?logo=apple&logoColor=white"></a>
   <img alt="Swift 5" src="https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white">
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-2563eb"></a>
 </p>
@@ -12,29 +12,35 @@
   <img src="assets/demo.gif" alt="Expanded, collapsed, expanded again" width="900">
 </p>
 
-**MenuBarHider** hides menu bar icons on macOS 27. Put the icons you want to hide
-between `|` and `»`, then click `»` to collapse or expand them. An optional timer hides
-them again after use.
+**MenuBarHider** hides menu bar icons on macOS 15 and later. On macOS 27, put the icons
+you want to hide between `|` and `»`; on macOS 15–26, put them to the left of `|` and keep
+`»` to its right. Click `»` to collapse or expand them. An optional timer hides them
+again after use.
 
 ```text
-  [always visible]  |  [hidden]  »  [always visible]      expanded
-  [always visible]  »  [always visible]                    collapsed
+  macOS 27:     [always visible]  |  [hidden]  »  [always visible]   expanded
+                [always visible]  »  [always visible]                 collapsed
+
+  macOS 15–26:  [hidden]  |  »  [always visible]                     expanded
+                [hidden off screen]  »  [always visible]              collapsed
 ```
 
-There are two hiding methods:
+There are three hiding methods:
 
 | Method | How it hides apps | Permissions |
 |---|---|---|
-| Compatibility (default) | A temporary `MenuBarAgent` visibility restriction | Accessibility |
-| System Settings (Experimental) | The system's per-app menu bar switches | Accessibility and access to one Control Center folder |
+| Compatibility (default on macOS 27+) | A temporary `MenuBarAgent` visibility restriction | Accessibility |
+| System Settings (Experimental, macOS 27+) | The system's per-app menu bar switches | Accessibility and access to one Control Center folder |
+| Legacy Spacer (macOS 15–26, automatic) | Widening `\|` pushes the icons to its left off screen | Accessibility |
 
-Neither method requires Screen Recording or Full Disk Access. The app does not capture
-screenshots of your menu bar or collect telemetry. Both methods use private macOS
-interfaces and may need updates when macOS changes.
+No method requires Screen Recording or Full Disk Access. The app does not capture
+screenshots of your menu bar or collect telemetry. Compatibility and System Settings use
+private macOS interfaces and may need updates when macOS changes; the legacy spacer only
+uses status item layout.
 
 ## Install
 
-Requires macOS 27.0 or newer. Download `MenuBarHider-x.y.z.dmg` from the
+Requires macOS 15.0 or newer. Download `MenuBarHider-x.y.z.dmg` from the
 [latest release](https://github.com/happy666End/MenuBarHider/releases/latest), open it and
 drag **MenuBarHider.app** onto **Applications**. A ZIP download is also available.
 Official release downloads are signed with a Developer ID and notarized by Apple.
@@ -44,8 +50,8 @@ it offers to move itself and leaves hiding disabled until then.
 
 On first launch, grant **Accessibility** in **System Settings → Privacy & Security →
 Accessibility**. The app detects the grant within two seconds; no restart is needed.
-Compatibility works with this permission alone. The experimental method asks for its
-folder access separately, as described below.
+Compatibility and the legacy spacer work with this permission alone. The experimental
+method asks for its folder access separately, as described below.
 
 ## Use
 
@@ -55,25 +61,47 @@ folder access separately, as described below.
 3. Click `»` to hide or show the group. Set **Auto-hide After** to collapse it after a
    delay, or choose **Never** to control it yourself.
 
+On macOS 15–26 the boundaries are different: ⌘-drag `|` to the right of the icons you
+want to hide, and keep `»` to its right as the toggle. Everything left of `|` hides; `|`
+is widened while collapsed, so only `»` remains visible.
+
 The app scans the layout each time you hide the group. Reorder icons while expanded,
 then hide them again to use the new layout. Apps launched while collapsed stay visible
-until the next layout scan places them inside the hidden group.
+until the next layout scan places them inside the hidden group. The legacy spacer hides
+new icons immediately if macOS inserts them left of `|`.
 
 Right-click either separator for the menu:
 
 | Item | What it does |
 |---|---|
 | Show Hidden Items / Hide Items | Same as a left click |
-| Rescan Layout | Re-read which icons sit between `\|` and `»` |
+| Rescan Layout | Re-read the hidden group (`\| … »` on macOS 27, left of `\|` on older systems) |
 | Auto-hide After | Never, 5 seconds, 10 seconds, 30 seconds, or 1 minute |
-| Advanced | Choose Compatibility or explicitly enable System Settings (Experimental) |
+| Advanced | Choose a macOS 27 method, or see the legacy method on macOS 15–26 |
 | Menu Bar Settings Access… | Inside Advanced; grant folder access without changing the hiding method |
 | Restore Menu Bar Visibility | Retry restoration and keep items shown; in Advanced for the experimental method, or next to error details |
 | Launch at Login | Start the app at login through `SMAppService` |
 
 ## Hiding methods
 
-### Compatibility
+### Legacy Spacer (macOS 15–26)
+
+`MenuBarAgent` and the per-app Control Center switches do not exist before macOS 27, so
+the app uses a status item as a spacer. While collapsed, `|` is widened far beyond the
+screen width; every status item to its left is pushed off screen. The `»` toggle stays
+visible to the right. Clicking `»` restores the standard width and the icons return in
+their original order.
+
+`|` must stay to the left of `»`; hiding is refused with an error otherwise, so the
+toggle is never pushed off screen.
+
+This method needs Accessibility only for reading the layout. It does not move, unload or
+rewrite other apps' items, and the spacer width lives only in memory, so quitting or
+crashing cannot leave icons stuck off screen. The trade-offs are that the hidden group
+must be the leftmost status items, and Apple menu extras stay loaded while they are out
+of view.
+
+### Compatibility (macOS 27+)
 
 The default method asks `MenuBarAgent` to show an allow-list of system items and app
 bundle identifiers. It uses `MBAssessmentModeAssertion` from the private
@@ -88,7 +116,7 @@ stay hidden during this workaround.
 If the required framework or class is unavailable, the menu reports **Hiding unavailable
 on this macOS build**.
 
-### System Settings (Experimental)
+### System Settings (Experimental, macOS 27+)
 
 Choose **Advanced → System Settings (Experimental)…** and confirm after reading the limitations.
 If folder access is needed, select only:
@@ -137,7 +165,9 @@ flowchart TD
     ROUTER -->|System Settings| NATIVE[NativeHidingEngine]
     NATIVE --> JOURNAL[Durable ownership journal]
     NATIVE --> PREFS[Control Center per-app switches]
-    HC --> EXTRAS[Apple menu extras: unload / reload]
+    ROUTER -->|Legacy Spacer, macOS 15–26| SPACER[SpacerHidingEngine]
+    SPACER --> WIDTH["| status item width"]
+    HC --> EXTRAS[Apple menu extras: unload / reload on macOS 27]
 ```
 
 The scanner reads app icon positions, including Apple agents such as the input menu,
@@ -145,11 +175,12 @@ from each app's `AXExtrasMenuBar`; the
 separators are MenuBarHider's own `NSStatusItem`s. If scanning an app fails, its icons
 keep their previous hidden or visible state.
 
-Time Machine, VPN and other Apple menu extras use the same separate mechanism with
-both hiding methods. They are plugins loaded into `SystemUIServer`, which does not
+Time Machine, VPN and other Apple menu extras use the same separate mechanism with the
+two macOS 27 methods. They are plugins loaded into `SystemUIServer`, which does not
 expose a distinct bundle identifier for each extra. MenuBarHider unloads selected
 extras through private `CoreMenuExtra` calls in HIServices and loads them back when
-shown. Their order in `SystemUIServer` is used to match them to their positions.
+shown. Their order in `SystemUIServer` is used to match them to their positions. The
+legacy spacer leaves them loaded and pushes them off screen with the other icons.
 
 ### Apple menu bar items
 
@@ -157,7 +188,8 @@ Compatibility also follows separator positions for Wi-Fi, Bluetooth, battery, di
 sound, keyboard brightness and screen mirroring. These controls share `MenuBarAgent`,
 so they are identified separately from app bundle identifiers. The clock and Control
 Center always stay visible. Unknown system controls are left visible; an incomplete
-scan preserves previous selections.
+scan preserves previous selections. The legacy spacer does not identify these controls;
+it hides whatever sits left of `|`, including Apple controls that can be moved there.
 
 Apple agents with their own status items, including the input menu, are scanned like
 other apps. System Settings can hide registered Apple applications with their own
@@ -176,14 +208,18 @@ MenuBarHider never switches methods automatically.
   `~/Applications`. Those items may remain hidden while the restriction is active.
 - Clock hover detection covers multiple displays. Separator positions are measured on
   the primary display.
+- On macOS 15–26 the legacy spacer widens `|` and hides every status item left of it.
+  Its width lives only in memory, so a normal quit, a crash, or removing the app restores
+  the standard layout.
 - Private interfaces can change in any macOS update. Errors are shown in the menu;
   the experimental method retains pending recovery information until restoration
   succeeds.
 
 ## Build from source
 
-Development uses Xcode 27 with the macOS 27 SDK and
-[xcodegen](https://github.com/yonaskolb/XcodeGen).
+Development uses Xcode 16.4 or newer with the macOS 15 SDK or newer, plus
+[xcodegen](https://github.com/yonaskolb/XcodeGen). The macOS 27 paths are resolved at
+runtime, so the newer SDK is not required to build.
 
 ```bash
 brew install xcodegen

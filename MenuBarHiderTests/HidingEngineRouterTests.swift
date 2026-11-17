@@ -9,7 +9,10 @@ final class HidingEngineRouterTests: XCTestCase {
     private var journal: MemoryVisibilityJournal!
     private var native: NativeHidingEngine!
     private var legacy: FakeEngine!
+    private var spacer: SpacerHidingEngine!
+    private var fakeSpacer: FakeSpacer!
     private var router: HidingEngineRouter!
+    private let methods: [HidingMethod] = [.assessment, .systemSettings, .legacy]
 
     override func setUpWithError() throws {
         suite = "HidingEngineRouterTests-\(UUID().uuidString)"
@@ -22,9 +25,14 @@ final class HidingEngineRouterTests: XCTestCase {
         journal = MemoryVisibilityJournal()
         let running = FakeRunning()
         running.bundleIDs = ["app.a"]
-        native = NativeHidingEngine(store: store, journal: journal, runningApps: running, parentBundleIDs: { _ in [] })
+        native = NativeHidingEngine(
+            store: store, journal: journal, runningApps: running, parentBundleIDs: { _ in [] },
+            isSupported: { true })
         legacy = FakeEngine()
-        router = HidingEngineRouter(settings: settings, assessment: legacy, native: native)
+        fakeSpacer = FakeSpacer()
+        spacer = SpacerHidingEngine(spacer: fakeSpacer)
+        router = HidingEngineRouter(
+            settings: settings, assessment: legacy, native: native, spacer: spacer, availableMethods: methods)
     }
 
     override func tearDown() {
@@ -76,7 +84,8 @@ final class HidingEngineRouterTests: XCTestCase {
         store.data = try TrackedApplicationsDocument(data: store.data).settingAllowed(["app.a": false])
         journal.owned = ["app.a"]
 
-        router = HidingEngineRouter(settings: settings, assessment: legacy, native: native)
+        router = HidingEngineRouter(
+            settings: settings, assessment: legacy, native: native, spacer: spacer, availableMethods: methods)
 
         XCTAssertTrue(router.isAvailable)
         XCTAssertTrue(journal.owned.isEmpty)
@@ -87,7 +96,8 @@ final class HidingEngineRouterTests: XCTestCase {
     func testStartupRecoveryFailurePreventsAnyAssessmentActivation() {
         journal.owned = ["app.a"]
         store.readError = Boom()
-        router = HidingEngineRouter(settings: settings, assessment: legacy, native: native)
+        router = HidingEngineRouter(
+            settings: settings, assessment: legacy, native: native, spacer: spacer, availableMethods: methods)
 
         XCTAssertFalse(router.isAvailable)
         router.restrict(allowedBundleIDs: []) { XCTAssertNotNil($0) }
@@ -162,7 +172,8 @@ final class HidingEngineRouterTests: XCTestCase {
     func testStartupRecoveryErrorIsVisibleWithoutAnotherHide() {
         journal.owned = ["app.a"]
         store.readError = Boom()
-        router = HidingEngineRouter(settings: settings, assessment: legacy, native: native)
+        router = HidingEngineRouter(
+            settings: settings, assessment: legacy, native: native, spacer: spacer, availableMethods: methods)
         let controller = HidingController(
             engine: router, items: FakeItems(), runningApps: FakeRunning(), extras: FakeExtras(),
             separators: { SeparatorPositions(separatorX: 500, leftSeparatorX: nil) },
@@ -192,5 +203,48 @@ final class HidingEngineRouterTests: XCTestCase {
 
         XCTAssertNotNil(controller.lastError)
         XCTAssertEqual(journal.owned, ["app.a"])
+    }
+
+    func testLegacyIsSelectedWhenPrivateMethodsAreUnavailable() {
+        router = HidingEngineRouter(
+            settings: settings, assessment: legacy, native: native, spacer: spacer,
+            availableMethods: [.legacy])
+
+        XCTAssertEqual(router.method, .legacy)
+        XCTAssertEqual(router.hidingMethod, .legacy)
+        XCTAssertFalse(router.requiresClockHover)
+        XCTAssertFalse(router.unloadsMenuExtras)
+        XCTAssertTrue(router.isAvailable)
+        XCTAssertEqual(settings.hidingMethod, .assessment)
+    }
+
+    func testUnavailableMethodCannotBeSelected() {
+        router = HidingEngineRouter(
+            settings: settings, assessment: legacy, native: native, spacer: spacer,
+            availableMethods: [.legacy])
+
+        XCTAssertThrowsError(try router.select(.systemSettings))
+
+        XCTAssertEqual(router.method, .legacy)
+        XCTAssertEqual(settings.hidingMethod, .assessment)
+        XCTAssertTrue(legacy.restrictions.isEmpty)
+    }
+
+    func testLegacyRestrictionDrivesTheSpacer() {
+        router = HidingEngineRouter(
+            settings: settings, assessment: legacy, native: native, spacer: spacer,
+            availableMethods: [.legacy])
+        let restriction = MenuBarRestriction(allowedBundleIDs: ["app.a"], hiddenSystemItems: [6])
+
+        router.restrict(restriction) { XCTAssertNil($0) }
+
+        XCTAssertTrue(fakeSpacer.isExpanded)
+        XCTAssertEqual(router.requestedRestriction, restriction)
+        XCTAssertNil(legacy.nextError)
+
+        router.release()
+
+        XCTAssertFalse(fakeSpacer.isExpanded)
+        XCTAssertNil(router.requestedRestriction)
     }
 }

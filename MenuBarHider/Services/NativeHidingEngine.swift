@@ -26,8 +26,10 @@ final class NativeHidingEngine: HidingEngine {
     private let journal: NativeVisibilityJournal
     private let runningApps: RunningAppsSource
     private let parentBundleIDs: (String) -> [String]
+    private let isSupported: () -> Bool
     private var observedBundleIDs: Set<String>?
     private var failedBundleIDs: Set<String> = []
+    var hidingMethod: HidingMethod { .systemSettings }
     var requiresClockHover: Bool { false }
     var isAvailable: Bool {
         do {
@@ -41,18 +43,20 @@ final class NativeHidingEngine: HidingEngine {
 
     init(
         store: TrackedApplicationsStore, journal: NativeVisibilityJournal, runningApps: RunningAppsSource,
-        parentBundleIDs: @escaping (String) -> [String] = NativeHidingEngine.parentBundleIdentifiers
+        parentBundleIDs: @escaping (String) -> [String] = NativeHidingEngine.parentBundleIdentifiers,
+        isSupported: @escaping () -> Bool = {
+            ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+        }
     ) {
         self.store = store
         self.journal = journal
         self.runningApps = runningApps
         self.parentBundleIDs = parentBundleIDs
+        self.isSupported = isSupported
     }
 
     func validateAvailability() throws {
-        guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 else {
-            throw NativeHidingFailure.unavailable
-        }
+        guard isSupported() else { throw NativeHidingFailure.unavailable }
         _ = try TrackedApplicationsDocument(data: store.read()).states()
     }
 

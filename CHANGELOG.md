@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- macOS 15–26 support through a legacy spacer: the `|` separator widens to push every
+  icon to its left off screen and shrinks back on show. No event injection, no persistent
+  changes, and nothing can be left stuck off screen after a quit or crash.
+- Hiding methods are now chosen per macOS version. The macOS 27 methods stay the default
+  there and keep the two-boundary layout.
+- On macOS 15–26, `|` marks the right edge of the hidden group and `»` is the toggle.
+  Hiding is refused with an error if `»` is not to the right of `|`.
+
+### Changed
+
+- Deployment target lowered from macOS 27 to macOS 15.
+- Apple menu extras are no longer unloaded in legacy mode; the spacer hides them in place.
+
 ## 0.2.0 — 2026-11-10
 
 ### Исправлено

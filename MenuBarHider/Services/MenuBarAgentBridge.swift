@@ -34,6 +34,9 @@ protocol HidingEngine: AnyObject {
     func restrict(_ restriction: MenuBarRestriction, completion: @escaping (Error?) -> Void)
     var requiresClockHover: Bool { get }
     var lastOperationError: Error? { get }
+    var hidingMethod: HidingMethod { get }
+    /// The spacer hides SystemUIServer extras with the rest of the bar, so it must not unload them.
+    var unloadsMenuExtras: Bool { get }
     func updateObservedBundleIDs(_ bundleIDs: Set<String>, failedBundleIDs: Set<String>)
     /// `completion` runs at most once, on the main thread, and never for a request
     /// superseded by a later `restrict` or `release`.
@@ -58,6 +61,8 @@ extension HidingEngine {
     }
     var requiresClockHover: Bool { true }
     var lastOperationError: Error? { nil }
+    var hidingMethod: HidingMethod { .assessment }
+    var unloadsMenuExtras: Bool { true }
     func updateObservedBundleIDs(_ bundleIDs: Set<String>, failedBundleIDs: Set<String> = []) {}
 }
 

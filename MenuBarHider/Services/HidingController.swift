@@ -83,7 +83,7 @@ final class HidingController {
     var isAccessibilityTrusted: Bool { items.isTrusted }
     var canHide: Bool { engine.isAvailable && isInApplications && items.isTrusted }
     var requiresClockHover: Bool { engine.requiresClockHover }
-    var hidingMethod: HidingMethod { settings.hidingMethod }
+    var hidingMethod: HidingMethod { engine.hidingMethod }
 
     // MARK: - Intent
 
@@ -129,10 +129,24 @@ final class HidingController {
             onChange?()
             return
         }
+        if hidingMethod == .legacy, !legacyBoundaryIsValid() {
+            lastError = SpacerHidingFailure.separatorOrder
+            Log.controller.error("hide skipped: place | to the left of » on the legacy spacer")
+            onChange?()
+            return
+        }
         refreshHiddenSet()
         state = .hidden
         reconcile()
         onChange?()
+    }
+
+    private func legacyBoundaryIsValid() -> Bool {
+        let positions = separators()
+        guard let boundary = positions.leftSeparatorX, let toggle = positions.separatorX else {
+            return false
+        }
+        return boundary < toggle
     }
 
     /// While collapsed the bar is expanded first and re-collapsed; the collapse performs the scan.
@@ -209,6 +223,15 @@ final class HidingController {
     private var restrictionForHiddenItems: MenuBarRestriction? {
         let hiddenApps = hiddenSet.filter { !MenuExtras.isExtra($0) && !SystemItems.isSystemSelection($0) }
         let hiddenSystemItems = SystemItems.hiddenIdentifiers(in: hiddenSet)
+        // The spacer hides the whole strip left of |; extras and system items need no allow list.
+        if hidingMethod == .legacy {
+            guard !hiddenSet.isEmpty else { return nil }
+            return MenuBarRestriction(
+                allowedBundleIDs: HiddenSet.allowList(
+                    running: runningApps.bundleIDs, hidden: hiddenSet,
+                    alwaysAllowed: SystemItems.alwaysAllowedBundleIDs),
+                hiddenSystemItems: hiddenSystemItems)
+        }
         guard !hiddenApps.isEmpty || !hiddenSystemItems.isEmpty else { return nil }
         return MenuBarRestriction(
             allowedBundleIDs: HiddenSet.allowList(
@@ -223,7 +246,7 @@ final class HidingController {
 
     /// No pointerOverClock check: unloaded extras do not block Notification Center.
     private var desiredRemovedExtras: Set<String> {
-        guard state == .hidden, canHide else { return [] }
+        guard state == .hidden, canHide, engine.unloadsMenuExtras else { return [] }
         return hiddenSet.filter(MenuExtras.isExtra)
     }
 
@@ -266,7 +289,9 @@ final class HidingController {
     private func refreshHiddenSet() {
         guard state == .shown, items.isTrusted else { return }
         let positions = separators()
-        guard let separatorX = positions.separatorX else { return }
+        let legacy = hidingMethod == .legacy
+        // macOS 15–26 hides everything left of |; » is only the toggle there.
+        guard let boundaryX = legacy ? positions.leftSeparatorX : positions.separatorX else { return }
         let scanned = items.scan()
         let running = Set(runningApps.bundleIDs)
         let failed = scanned.failedBundleIDs.filter {
@@ -277,12 +302,15 @@ final class HidingController {
         observedBundleIDs = Set(observed.map(\.bundleID)).union(observedBundleIDs.intersection(failed))
         engine.updateObservedBundleIDs(observedBundleIDs, failedBundleIDs: failed)
         hiddenSet = HiddenSet.partition(
-            items: observed, leftSeparatorX: positions.leftSeparatorX, separatorX: separatorX
+            items: observed,
+            leftSeparatorX: legacy ? nil : positions.leftSeparatorX,
+            separatorX: boundaryX
         ).union(hiddenSet.intersection(failed))
         settings.hiddenBundleIDs = hiddenSet
         let dump = observed.map { "\($0.bundleID)@\(Int($0.x))" }
-        let leftX = positions.leftSeparatorX.map { "\($0)" } ?? "none"
-        Log.controller.error("scan: sep=\(separatorX) left=\(leftX) items=\(dump) hidden=\(self.hiddenSet.sorted())")
+        let leftX = (legacy ? nil : positions.leftSeparatorX).map { "\($0)" } ?? "none"
+        Log.controller.error(
+            "scan: boundary=\(boundaryX) left=\(leftX) items=\(dump) hidden=\(self.hiddenSet.sorted())")
     }
 
     private func pointerOverClockChanged(from previous: Bool) {

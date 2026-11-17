@@ -2,7 +2,7 @@ name: MenuBarHider
 options:
   bundleIdPrefix: com.sava
   deploymentTarget:
-    macOS: "27.0"
+    macOS: "15.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 settings:

@@ -5,6 +5,8 @@ import Foundation
 final class FakeEngine: HidingEngine {
     var isAvailable = true
     var requiresClockHover = true
+    var hidingMethod: HidingMethod = .assessment
+    var unloadsMenuExtras = true
     var appliedAllowList: [String]?
     var restrictions: [[String]] = []
     var releases = 0
@@ -21,6 +23,11 @@ final class FakeEngine: HidingEngine {
         appliedAllowList = nil
         releases += 1
     }
+}
+
+final class FakeSpacer: MenuBarSpacer {
+    var isAvailable = true
+    var isExpanded = false
 }
 
 final class FakeItems: MenuBarItemSource {

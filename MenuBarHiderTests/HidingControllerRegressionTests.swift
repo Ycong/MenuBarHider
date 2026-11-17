@@ -93,9 +93,13 @@ final class HidingControllerRegressionTests: XCTestCase {
         let journal = MemoryVisibilityJournal()
         running.bundleIDs = ["fixture.hidden", "fixture.visible"]
         let native = NativeHidingEngine(
-            store: store, journal: journal, runningApps: running, parentBundleIDs: { _ in [] })
+            store: store, journal: journal, runningApps: running, parentBundleIDs: { _ in [] },
+            isSupported: { true })
         settings.hidingMethod = .systemSettings
-        let router = HidingEngineRouter(settings: settings, assessment: engine, native: native)
+        let router = HidingEngineRouter(
+            settings: settings, assessment: engine, native: native,
+            spacer: SpacerHidingEngine(spacer: FakeSpacer()),
+            availableMethods: [.assessment, .systemSettings, .legacy])
         let subject = HidingController(
             engine: router, items: items, runningApps: running, extras: FakeExtras(),
             separators: { SeparatorPositions(separatorX: 500, leftSeparatorX: nil) },
@@ -192,6 +196,69 @@ final class HidingControllerRegressionTests: XCTestCase {
         XCTAssertNil(engine.appliedAllowList)
         subject.toggle()
         XCTAssertEqual(subject.state, .hidden)
+    }
+
+    @MainActor
+    func testLegacyMethodHidesEverythingLeftOfTheLeftSeparator() {
+        engine.hidingMethod = .legacy
+        engine.requiresClockHover = false
+        engine.unloadsMenuExtras = false
+        let extras = FakeExtras()
+        extras.loaded = ["com.apple.menuextra.vpn"]
+        running.bundleIDs = ["left", "hidden"]
+        items.positions = [
+            .init(bundleID: "left", x: 100),
+            .init(bundleID: "hidden", x: 300),
+            .init(bundleID: "com.apple.menuextra.vpn", x: 350),
+            .init(bundleID: "right", x: 700),
+        ]
+        let subject = HidingController(
+            engine: engine, items: items, runningApps: running, extras: extras,
+            separators: { SeparatorPositions(separatorX: 800, leftSeparatorX: 500) },
+            isInApplications: true, settings: settings, scheduler: ManualScheduler())
+
+        subject.hide()
+
+        XCTAssertEqual(subject.hidingMethod, .legacy)
+        XCTAssertEqual(subject.hiddenSet, ["left", "hidden", "com.apple.menuextra.vpn"])
+        XCTAssertTrue(extras.removals.isEmpty)
+        XCTAssertNotNil(engine.restrictions.last)
+        XCTAssertFalse(engine.restrictions.last?.contains("left") ?? true)
+        XCTAssertFalse(engine.restrictions.last?.contains("right") ?? true)
+    }
+
+    @MainActor
+    func testLegacyRefusesWhenTheToggleIsLeftOfTheBoundary() {
+        let fakeSpacer = FakeSpacer()
+        let legacyEngine = SpacerHidingEngine(spacer: fakeSpacer)
+        running.bundleIDs = ["app.a"]
+        items.positions = [.init(bundleID: "app.a", x: 100)]
+        let subject = HidingController(
+            engine: legacyEngine, items: items, runningApps: running, extras: FakeExtras(),
+            separators: { SeparatorPositions(separatorX: 400, leftSeparatorX: 500) },
+            isInApplications: true, settings: settings, scheduler: ManualScheduler())
+
+        subject.hide()
+
+        XCTAssertEqual(subject.state, .shown)
+        XCTAssertFalse(fakeSpacer.isExpanded)
+        XCTAssertNotNil(subject.lastError)
+    }
+
+    @MainActor
+    func testLegacyStillCollapsesForASystemItemOnlyGroup() {
+        let fakeSpacer = FakeSpacer()
+        let legacyEngine = SpacerHidingEngine(spacer: fakeSpacer)
+        items.positions = [.init(bundleID: "system-item:wifi", x: 200)]
+        let subject = HidingController(
+            engine: legacyEngine, items: items, runningApps: running, extras: FakeExtras(),
+            separators: { SeparatorPositions(separatorX: 500, leftSeparatorX: 300) },
+            isInApplications: true, settings: settings, scheduler: ManualScheduler())
+
+        subject.hide()
+
+        XCTAssertEqual(subject.hiddenSet, ["system-item:wifi"])
+        XCTAssertTrue(fakeSpacer.isExpanded)
     }
 }
 
